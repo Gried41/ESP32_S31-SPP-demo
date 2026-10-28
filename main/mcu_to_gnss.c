@@ -601,9 +601,9 @@ void Get_Log_Type(uint8_t *data , size_t len)
             GGA_MSG_Parse(data , len , &gga);
             break;
         case MSG_OBSVMCMPA:
-
+            CMPA_Info cmpa;
+            OBSVMCMPA_MSG_Parse(data , &cmpa);
             printf("%s",data);
-            //printf("OBSVMCMPA Log\r\n");
             break;
         default:
             printf("%s",data);
@@ -629,40 +629,76 @@ GNSS_MSG_TYPE Log_Type(uint8_t *data , size_t len)
         return MSG_UNKNOW;
     }
 }
-
-void OBSVMCMPA_MSG_Parse()
+/*
+@fn:对OBSVMCMPA报文进行解析，这里先尝试解析第一条数据
+该报文第一部分为消息头，截至到;号
+*/
+void OBSVMCMPA_MSG_Parse(uint8_t *data , CMPA_Info * CMPA)
 {
-    
+    //将指针定位到分号后第一个','的数据部分
+    uint8_t *star = (memchr((const char*)data , ';' , strlen((const char*)data)))+1;
+    star = (memchr((const char*)star , ',' , strlen((const char*)star)))+1;             //单个检测数据数据头
+    uint8_t *end = memchr((const char*)star , ',' , strlen((const char*)star));         //单个检测数据尾部','号
+    Single_Data_Parse(star , end , CMPA);
 }
 /*
-@fn:将十六进制数据转换为对于数值 如 1 -> 1 ; 9 -> 9; a -> 10; f -> 15...
+@fn:负责找到单个的48字符数据，分割号为','
+*/
+static void Single_Data_Parse(uint8_t *star , uint8_t *end , CMPA_Info *CMPA)
+{
+    uint8_t buf[25];
+    Decode_Hex_Record((const char*)star , 48 , buf);
+    CMPA->tracking_raw   = Get_Bits_LSB(buf , 0, 32);      //获取通道跟踪状态 起始bit = 0，位长32bit
+    CMPA->doppler_raw    = Get_Bits_LSB(buf , 32 , 28);    //获取多普勒原始数据，起始位32 位长28bit
+    CMPA->psr_raw        = Get_Bits_LSB(buf , 60 , 36);    //获取伪距PSR原始数据   起始位60 位长36
+    CMPA->adr_raw        = Get_Bits_LSB(buf , 96 , 32);    //获取载波相位ADR       起始位96 位长32
+    CMPA->psr_std_index  = Get_Bits_LSB(buf, 128, 4);      //获取伪距标准差索引
+    CMPA->adr_std_index  = Get_Bits_LSB(buf, 132, 4);      //获取载波相位标准差索引
+    CMPA->prn            = Get_Bits_LSB(buf, 136, 8);      //获取卫星PRN
+    CMPA->lock_time_raw  = Get_Bits_LSB(buf, 144, 21);     //获取锁定时间
+    CMPA->cne_raw        = Get_Bits_LSB(buf, 165, 5);      //获取C/N0
+    printf("%llu    %llu    %llu    %llu    %llu    %llu    %llu    %llu    %llu\r\n", CMPA->tracking_raw,
+    CMPA->doppler_raw , CMPA->psr_raw , CMPA->adr_raw , CMPA->psr_std_index , CMPA->adr_std_index , CMPA->prn,
+    CMPA->lock_time_raw , CMPA->cne_raw);
+    //printf("%.*s\r\n" , 8 , star);
+}
+
+/*
+@fn:将十六进制字符数据转换为整数 如 1 -> 1 ; 9 -> 9; a -> 10; f -> 15...
 */
 static int HEX_To_Byte(char c)
 {
-    if(c > '0' && c < '9')
+    if(c >= '0' && c <= '9')
         return c - '0';
-    if(c > 'a' && c < 'f')
+    if(c >= 'a' && c <= 'f')
         return c - 'a' + 10;
-    if(c > 'A' && c < 'F')
+    if(c >= 'A' && c <= 'F')
         return c - 'A' + 10;    
     return -1;
 }
 /*
-@fn:将48个字符全部转换为对于的十六进制数值，分高低位存储到一个字节空间中
+@fn:将48个十六进制字符数据全部转换为对应的十六数值，分高低位存储到一个字节空间中，这里主要是将两个十六进制数据存储到一个字节空间中去，形式变化在HEX_To_Byte函数中
  hex 指向48个字符数据的起始位置， hex_len 为字符数据长度 但必须为偶数 奇数会导致溢出，此类型报文数据都为偶数 uint8_t out[24]预期指向一个能存放24字节的缓冲区
 */
 static bool Decode_Hex_Record(const char *hex , size_t hex_len , uint8_t out[24])   //out 接收一个数组名其实也相当于指针 函数形参中的数组声明会自动调整为指针声明
 {
     if (hex == NULL || out == NULL || hex_len != 48)
+    {
+        printf("hex == NULL || out == NULL || hex_len != 48 \r\n");
         return false;
-    for(size_t i = 0; i < hex_len; i++)
+    }
+    for(size_t i = 0; i < 24; i++)
     {
         int high = HEX_To_Byte(hex[i * 2]);
         int low  = HEX_To_Byte(hex[i * 2 +1]);      //★★★★  循环中同时处理两个数据方法
 
         if (high < 0 || low < 0)                    //避免为负数
-        return false;
-        out[i] = (uint8_t)((high << 4) | low);      //high在高四位，low在低四位
+        {
+            printf("high < 0 || low < 0 \r\n");
+            return false;
+        }
+
+        out[i] = (uint8_t)((high << 4) | low);      //high在高四位，low在低四位     
     }
     return true;
 }
@@ -670,7 +706,7 @@ static bool Decode_Hex_Record(const char *hex , size_t hex_len , uint8_t out[24]
 @fn:从一段uint8_t 空间中 按照起始位和长度，提取出二进制数据并将其转化为整数
     data 空间的头指针， start_bit 从第几位开始提取 ， width 一共提取多少位 返回值为提取出的二进制而组成的整数
 */
-static uint64_t Get_Bits_LSB(const uint8_t *data,unsigned start_bit,unsigned width)
+static uint64_t Get_Bits_LSB(const uint8_t *data , unsigned start_bit , unsigned width)
 {
     uint64_t value = 0;
     for (unsigned i = 0; i < width; i++)                            /*假设data[0] = 0Xb2,start_bit = 3 , width = 4*/
@@ -683,7 +719,11 @@ static uint64_t Get_Bits_LSB(const uint8_t *data,unsigned start_bit,unsigned wid
     }
     return value;
 }
-
+/*
+目前打算先将帧数据分包，一包代表一个完整的单次检测数据，头尾指针分别指向单次数据的头尾部，
+然后将这个48个十六进制数据转换为24字节数据，这个24字节数据就作为单次检测的一个数据
+此时将这次的检测数据放入Get_Bits_LSB单独取出不同数据段的数据
+*/
 
 
 
