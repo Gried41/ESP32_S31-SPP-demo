@@ -225,8 +225,6 @@ void gnss_uart2_to_mcu_task(void *arg)
                     }
                     else
                     {
-
-
                         data[real_len] = '\0';
                         real_len++;
                         memcpy(log_buf + buf_len, data , real_len);
@@ -594,17 +592,19 @@ void Get_Log_Type(uint8_t *data , size_t len)
         case MSG_RMC:
             RMC_Info rmc;
             RMC_MSG_Parse(data , len , &rmc);
-            //printf("%s\r\n",data);
             break;
+
         case MSG_GGA:
             GGA_Info gga;
             GGA_MSG_Parse(data , len , &gga);
             break;
+
         case MSG_OBSVMCMPA:
             CMPA_Info cmpa;
             OBSVMCMPA_MSG_Parse(data , &cmpa);
-            printf("%s",data);
+            //printf("%s",data);
             break;
+
         default:
             printf("%s",data);
             break;
@@ -636,11 +636,28 @@ GNSS_MSG_TYPE Log_Type(uint8_t *data , size_t len)
 void OBSVMCMPA_MSG_Parse(uint8_t *data , CMPA_Info * CMPA)
 {
     //将指针定位到分号后第一个','的数据部分
-    uint8_t *star = (memchr((const char*)data , ';' , strlen((const char*)data)))+1;
+    uint8_t *star = (memchr((const char*)data , ';' , strlen((const char*)data)))+1;      //定位到 ；号
+    size_t log_count;
+    sscanf((const char*)star , "%zu" , &log_count);                                     //获取报文内完整数据的数量
     star = (memchr((const char*)star , ',' , strlen((const char*)star)))+1;             //单个检测数据数据头
     uint8_t *end = memchr((const char*)star , ',' , strlen((const char*)star));         //单个检测数据尾部','号
-    Single_Data_Parse(star , end , CMPA);
+    printf("log count : %d\r\n" , log_count);
+    /*实现对整个报文的数据解析并收集打印*/
+    for(int i = 0 ; i < log_count-1 ; i++)
+    {
+        if(i == log_count -2)                   //最后一段完整的数据
+        {
+            star=end+1;
+            end = memchr((const char*)star , '*' , strlen((const char*)star));  //最后的结尾是以*做标志的
+            Single_Data_Parse(star , end , CMPA);
+            break;
+        }
+        Single_Data_Parse(star , end , CMPA);
+        star=end+1;
+        end = memchr((const char*)star , ',' , strlen((const char*)star));
+    }
 }
+
 /*
 @fn:负责找到单个的48字符数据，分割号为','
 */
@@ -771,23 +788,17 @@ void GGA_MSG_Parse(uint8_t *data , size_t len , GGA_Info * GGA)
     uint8_t *end = memchr(star, ',', strlen((const char*)data));
     UTC_Time_Parse(star , end , &GGA->time);
     /*这次解析完毕后还需要更新star 和 end 指针的位置，方便下次解析*/
-    end++;
-    star = end;
-    end  = memchr(star , ',' , strlen((const char*)star));
-    end+=2; //获取到北纬或者南纬字符
+    star = end+1;
+    end  = (memchr(star , ',' , strlen((const char*)star)))+2; //获取到北纬或者南纬字符
     Latitude_Parse(star , end , &GGA->latitude);
-    end++;
-    star = end;
-    end  = memchr(star , ',' , strlen((const char*)star));
-    end+=2; //获取到东经或者西经字符
+    star = end+1;
+    end  = (memchr(star , ',' , strlen((const char*)star)))+2;//获取到东经或者西经字符
     Longitude_Parse(star , end , &GGA->longitude);
-    end++;
-    star = end;
+    star = end+1;
     end  = memchr(star , ',' , strlen((const char*)star));
     end+=7;
     GGA_Base_Parse(star , end , GGA);
-    end++;
-    star = end;
+    star = end+1;
     end  = memchr(star , ',' , strlen((const char*)star));
     end+=12; //获取海拔高度单位字符
     Altitude_Parse(star , end , GGA);
