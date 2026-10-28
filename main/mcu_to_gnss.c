@@ -225,6 +225,8 @@ void gnss_uart2_to_mcu_task(void *arg)
                     }
                     else
                     {
+
+
                         data[real_len] = '\0';
                         real_len++;
                         memcpy(log_buf + buf_len, data , real_len);
@@ -632,11 +634,58 @@ void OBSVMCMPA_MSG_Parse()
 {
     
 }
-
-void HEX_To_Byte(char c)
+/*
+@fn:将十六进制数据转换为对于数值 如 1 -> 1 ; 9 -> 9; a -> 10; f -> 15...
+*/
+static int HEX_To_Byte(char c)
 {
-    
+    if(c > '0' && c < '9')
+        return c - '0';
+    if(c > 'a' && c < 'f')
+        return c - 'a' + 10;
+    if(c > 'A' && c < 'F')
+        return c - 'A' + 10;    
+    return -1;
 }
+/*
+@fn:将48个字符全部转换为对于的十六进制数值，分高低位存储到一个字节空间中
+ hex 指向48个字符数据的起始位置， hex_len 为字符数据长度 但必须为偶数 奇数会导致溢出，此类型报文数据都为偶数 uint8_t out[24]预期指向一个能存放24字节的缓冲区
+*/
+static bool Decode_Hex_Record(const char *hex , size_t hex_len , uint8_t out[24])   //out 接收一个数组名其实也相当于指针 函数形参中的数组声明会自动调整为指针声明
+{
+    if (hex == NULL || out == NULL || hex_len != 48)
+        return false;
+    for(size_t i = 0; i < hex_len; i++)
+    {
+        int high = HEX_To_Byte(hex[i * 2]);
+        int low  = HEX_To_Byte(hex[i * 2 +1]);      //★★★★  循环中同时处理两个数据方法
+
+        if (high < 0 || low < 0)                    //避免为负数
+        return false;
+        out[i] = (uint8_t)((high << 4) | low);      //high在高四位，low在低四位
+    }
+    return true;
+}
+/*
+@fn:从一段uint8_t 空间中 按照起始位和长度，提取出二进制数据并将其转化为整数
+    data 空间的头指针， start_bit 从第几位开始提取 ， width 一共提取多少位 返回值为提取出的二进制而组成的整数
+*/
+static uint64_t Get_Bits_LSB(const uint8_t *data,unsigned start_bit,unsigned width)
+{
+    uint64_t value = 0;
+    for (unsigned i = 0; i < width; i++)                            /*假设data[0] = 0Xb2,start_bit = 3 , width = 4*/
+    {
+        unsigned bit_pos = start_bit + i;                           //i = 3,                        1u的作用是保留最低位，其他清零 相当于掩码最低位为1
+        if ((data[bit_pos / 8] >> (bit_pos % 8)) & 1u)              //3/8 = 0 ,(data[0] >> 3) = 1011 0010 >> 3 = 0001 0110  & 1u = 0000 0000
+        {
+            value |= (uint64_t)1 << i;                              //找到目标位，判断是 1 还是 0，是 1 则 0000 0000 |= 0000 0001 不是则跳过，一直遍历到i < width
+        }
+    }
+    return value;
+}
+
+
+
 
 
 void RMC_MSG_Parse(uint8_t *data , size_t len , RMC_Info * RMC)
