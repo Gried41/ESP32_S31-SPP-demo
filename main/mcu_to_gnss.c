@@ -135,17 +135,17 @@ void Get_cmd_go(uint8_t *data , uint8_t len)
         int written = uart_write_bytes(UART2, real_cmd, payload_len);
         if (written != payload_len) 
         {
-            printf("uart1_write error \r\n");    //不需要\r\n 原本的data就在末尾有
+            printf("uart2_write error \r\n");    //不需要\r\n 原本的data就在末尾有
         }
     }
-    else if (len >= 5 && (memcmp(cmd, "com3 ", 5) == 0|| memcmp(cmd, "COM3 ", 5) == 0))
+    else if (len >= 5 && (memcmp(cmd, "com3 ", 5) == 0 || memcmp(cmd, "COM3 ", 5) == 0))
     {
         char *real_cmd = cmd + 5;
         uint8_t payload_len = len - 5;
         int written = uart_write_bytes(UART3, real_cmd, payload_len);
         if (written != payload_len) 
         {
-            printf("uart2_write error \r\n");
+            printf("uart1_write error \r\n");
         }
     }
     else if(len >= 3 && memcmp(cmd , "AT+" , 3) == 0)
@@ -576,10 +576,10 @@ void uart3_init(void)
     ESP_ERROR_CHECK(uart_driver_install(UART3, 1024, 0, 20, &gnss_uart3_queue, 0));
     ESP_ERROR_CHECK(uart_param_config(UART3, &config));
     ESP_ERROR_CHECK(uart_set_pin(UART3, UART3_TX_PIN, UART3_RX_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE));
-
     BaseType_t task_created = xTaskCreate(gnss_uart3_to_mcu_task, "gnss_uart3_to_mcu_task", 3072, NULL, 10, NULL);
     ESP_ERROR_CHECK(task_created == pdPASS ? ESP_OK : ESP_ERR_NO_MEM);
 }
+
 
 /*
 @fn:判断报文类别，带有返回值,返回值为报文类型，枚举
@@ -635,6 +635,7 @@ GNSS_MSG_TYPE Log_Type(uint8_t *data , size_t len)
 */
 void OBSVMCMPA_MSG_Parse(uint8_t *data , CMPA_Info * CMPA)
 {
+
     //将指针定位到分号后第一个','的数据部分
     uint8_t *star = (memchr((const char*)data , ';' , strlen((const char*)data)))+1;      //定位到 ；号
     size_t log_count;
@@ -645,7 +646,7 @@ void OBSVMCMPA_MSG_Parse(uint8_t *data , CMPA_Info * CMPA)
     /*实现对整个报文的数据解析并收集打印*/
     for(int i = 0 ; i < log_count-1 ; i++)
     {
-        if(i == log_count -2)                   //最后一段完整的数据
+        if(i == log_count -2)                   //最后一段完整的数据处理方式不同
         {
             star=end+1;
             end = memchr((const char*)star , '*' , strlen((const char*)star));  //最后的结尾是以*做标志的
@@ -657,6 +658,8 @@ void OBSVMCMPA_MSG_Parse(uint8_t *data , CMPA_Info * CMPA)
         end = memchr((const char*)star , ',' , strlen((const char*)star));
     }
 }
+
+//static void Head_Data_Parse(uint8_t *star , uint8_t *end , CMPA_Data_Head * )
 
 /*
 @fn:负责找到单个的48字符数据，分割号为','
@@ -701,20 +704,19 @@ static bool Decode_Hex_Record(const char *hex , size_t hex_len , uint8_t out[24]
 {
     if (hex == NULL || out == NULL || hex_len != 48)
     {
-        printf("hex == NULL || out == NULL || hex_len != 48 \r\n");
+        printf("hex == NULL || out == NULL || hex_len != 48 error\r\n");
         return false;
     }
     for(size_t i = 0; i < 24; i++)
-    {
+    {   
+
         int high = HEX_To_Byte(hex[i * 2]);
         int low  = HEX_To_Byte(hex[i * 2 +1]);      //★★★★  循环中同时处理两个数据方法
-
         if (high < 0 || low < 0)                    //避免为负数
         {
             printf("high < 0 || low < 0 \r\n");
             return false;
         }
-
         out[i] = (uint8_t)((high << 4) | low);      //high在高四位，low在低四位     
     }
     return true;
@@ -736,6 +738,7 @@ static uint64_t Get_Bits_LSB(const uint8_t *data , unsigned start_bit , unsigned
     }
     return value;
 }
+
 /*
 目前打算先将帧数据分包，一包代表一个完整的单次检测数据，头尾指针分别指向单次数据的头尾部，
 然后将这个48个十六进制数据转换为24字节数据，这个24字节数据就作为单次检测的一个数据
@@ -960,7 +963,7 @@ void gnss_uart3_to_mcu_task(void *arg)
             while(len > 0)
             {
                 uint16_t real_len = len > sizeof(data) ? sizeof(data) : len;
-                uart_read_bytes(UART3 , data , real_len , portMAX_DELAY);
+                int data_count = uart_read_bytes(UART3 , data , real_len , portMAX_DELAY);
                 //判断是否有\r\n 有则代表输出的包已满 可以换行分割
                 char *star = memchr(data , '\r' , real_len);
                 char *next = memchr(data , '\n' , real_len);

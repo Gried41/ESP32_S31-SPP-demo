@@ -388,8 +388,8 @@ void app_main(void)
     uart1_init();
     uart_printf_mutex_init();
     mcu_uart_init();
-    uart2_init();
     uart3_init();
+    uart2_init();
     rx_to_gnss_task_init();
     //BaseType_t task_created = xTaskCreate(cpu_monitor_task,"cpu_monitor",4096,NULL,1,NULL);
     //ESP_ERROR_CHECK(cpu_load_test_start());

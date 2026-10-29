@@ -81,15 +81,24 @@ typedef struct
 
 typedef struct
 {
-    uint64_t tracking_raw;
-    uint64_t doppler_raw; 
-    uint64_t psr_raw;         
-    uint64_t adr_raw;       
-    uint64_t psr_std_index;  
-    uint64_t adr_std_index;  
-    uint64_t prn;            
-    uint64_t lock_time_raw;  
-    uint64_t cne_raw;        
+    double          cpu_idle_rate;
+    char            time_system[4];
+    char            time_status[5];
+    int             time_weeks;
+    int             weeks_ms;
+}CMPA_Data_Head;
+typedef struct
+{
+    CMPA_Data_Head  head_data;
+    uint64_t        tracking_raw;
+    uint64_t        doppler_raw; 
+    uint64_t        psr_raw;         
+    uint64_t        adr_raw;       
+    uint64_t        psr_std_index;  
+    uint64_t        adr_std_index;  
+    uint64_t        prn;            
+    uint64_t        lock_time_raw;  
+    uint64_t        cne_raw;        
 }CMPA_Info;
 
 
@@ -127,6 +136,7 @@ void OBSVMCMPA_MSG_Parse(uint8_t *data , CMPA_Info * CMPA);
 static int HEX_To_Byte(char c);
 static bool Decode_Hex_Record(const char *hex , size_t hex_len , uint8_t out[24]);
 static uint64_t Get_Bits_LSB(const uint8_t *data , unsigned start_bit , unsigned width);
+
 
 static void Single_Data_Parse(uint8_t *star , uint8_t *end , CMPA_Info *CMPA);
 
