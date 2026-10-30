@@ -9,7 +9,8 @@ typedef enum
     MSG_GGA,
     MSG_RMC,
     MSG_ZDA,
-    MSG_OBSVMCMPA
+    MSG_OBSVMCMPA,
+    MSG_RANGECMPB
     
 }GNSS_MSG_TYPE;
 typedef struct
@@ -101,6 +102,19 @@ typedef struct
     uint64_t        cne_raw;        
 }CMPA_Info;
 
+typedef struct
+{
+    uint8_t         prn;          // 卫星号
+    double          psr;          // 伪距，米
+    double          adr;          // 载波相位，周
+    double          doppler;      // 多普勒，Hz
+    uint8_t         cn0;          // 载噪比，dB-Hz
+    double          lock_time;    // 锁定时间，秒
+    uint8_t         psr_std_idx;  // 伪距标准差索引（查表用）
+    uint8_t         adr_std_raw;  // 载波相位标准差原始值
+}RANGECMPB_Info;
+
+
 
 #define UM980_LOG_CHECK_IS      0
 
@@ -137,7 +151,15 @@ static int HEX_To_Byte(char c);
 static bool Decode_Hex_Record(const char *hex , size_t hex_len , uint8_t out[24]);
 static uint64_t Get_Bits_LSB(const uint8_t *data , unsigned start_bit , unsigned width);
 
+bool Is_Full_Data(uint8_t *log_buf , size_t buf_len);
+bool Is_0X2_Data(uint8_t *log_buf , size_t buf_len);
+bool Is_Char_Data_Over(uint8_t *log_buf , size_t buf_len);
+bool Is_0X2_Data_Over(uint8_t *log_buf , size_t buf_len);
+bool Is_Char_Data_Head(uint8_t *log_buf , size_t buf_len);
+size_t Get_0X2_Data_Length(uint8_t *log_buf , size_t buf_len);
 
+void RANGECMPB_MSG_Parse(uint8_t *data , RANGECMPB_Info * CMPB);
+void Single_RANGECMPB_Data_Parse(uint8_t *data , RANGECMPB_Info * CMPB);
 static void Single_Data_Parse(uint8_t *star , uint8_t *end , CMPA_Info *CMPA);
 
 void UTC_Time_Parse(uint8_t *star , uint8_t *end , UTC_Time *time);

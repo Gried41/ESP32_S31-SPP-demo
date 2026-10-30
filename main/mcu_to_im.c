@@ -39,7 +39,7 @@ void im_uart_to_mcu_task(void *arg)
     //阻塞等待事件
     uint8_t data[128];
     //接收完整报文缓冲区
-    uint8_t log_buf[2048];
+    uint8_t log_buf[1024];
     size_t  buf_len = 0;
     while(1)
     {
@@ -55,6 +55,8 @@ void im_uart_to_mcu_task(void *arg)
             {
                 uint16_t real_len = len > sizeof(data) ? sizeof(data) : len;
                 uart_read_bytes(UART1 , data , real_len , portMAX_DELAY);
+
+                
                 //判断是否有\r\n 有则代表输出的包已满 可以换行分割
                 char *star = memchr(data , '\r' , real_len);
                 char *next = memchr(data , '\n' , real_len);

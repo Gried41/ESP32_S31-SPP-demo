@@ -203,57 +203,104 @@ void gnss_uart2_to_mcu_task(void *arg)
         if(event.type == UART_DATA)
         {
             uint16_t len = event.size;  //缓冲区存在阈值，目前看来可能是128，导致最多读取到120字节就会返回一次事件
-            while(len > 0)
+            if(len > 0)
             {
                 uint16_t real_len = len > sizeof(data) ? sizeof(data) : len;
-                uart_read_bytes(UART2 , data , real_len , portMAX_DELAY);
-                //判断是否有\r\n 有则代表输出的包已满 可以换行分割
-                char *star = memchr(data , '\r' , real_len);
-                char *next = memchr(data , '\n' , real_len);
-                if( star != NULL && next != NULL && (next - star == 1))//找到了报文结束,一次性打印报文
+                uart_read_bytes(UART2 , data , real_len , portMAX_DELAY);   //接收层不做处理，将数据全部放入缓冲区中
+                memcpy(log_buf + buf_len , data , real_len);
+                buf_len += real_len;  
+                if(Is_Full_Data(log_buf , buf_len))//放入缓冲区后检查该帧是否接收完毕       这里的操作出问题了，导致后续Get_Log_Type获取类型时程序卡死
                 {
-                    if(real_len != 120)
-                    {
-                        data[real_len] = '\0';
-                        real_len++;
-                        memcpy(log_buf + buf_len , data , real_len);//前面加过\0，这里不用在加一次
-                        buf_len += real_len;
-                        Get_Log_Type(log_buf , buf_len);
-                        //printf("%s\r\n",data);
-                        log_buf[0] = '\0';
-                        buf_len = 0;        //清空缓冲区
-                    }
-                    else
-                    {
-                        data[real_len] = '\0';
-                        real_len++;
-                        memcpy(log_buf + buf_len, data , real_len);
-                        buf_len += real_len;
-                        Get_Log_Type(log_buf , buf_len);
-
-                        log_buf[0] = '\0';
-                        buf_len = 0;        //清空缓冲区
-                    }
-                    break;
-                }
-                else//没找到，当前包还有下文
-                {
-                    if(real_len != 120)
-                    {
-                        memcpy(log_buf + buf_len, data , real_len);
-                        buf_len += real_len;
-                    }
-                    else
-                    {
-                        memcpy(log_buf + buf_len, data , real_len);
-                        buf_len += real_len;
-                    } 
-                }
-                len -= real_len;
+                    Get_Log_Type(log_buf , buf_len);//进行类型检测以及数据解析
+                    buf_len = 0;
+                    log_buf[buf_len] = '\0';        //接收一整个帧数据后要清理缓冲区
+                }               
             }
         }
     }
 }
+/*
+@fn:判断当前缓冲区内的数据是否组帧完毕
+*/
+bool Is_Full_Data(uint8_t *log_buf , size_t buf_len)
+{
+    /*要先判断数据类型再判断该帧是否完整*/
+    if(Is_0X2_Data(log_buf , buf_len))//是二进制数据
+    {
+        /*二进制数据判断完帧方法是拿数据长度和缓冲区长度对比*/
+        if(Is_0X2_Data_Over(log_buf , buf_len))
+        {   
+            return true;
+        }
+    }
+        /*字符数据可以判断尾部\r\n来判断是否接收完毕*/
+    else if(Is_Char_Data_Over(log_buf , buf_len))//对缓冲区中的数据搜寻\r\n
+    {
+        return true;
+    }
+    return false;
+}
+/*
+@fn:判断当前缓冲区内的数据是不是二进制数据
+*/
+bool Is_0X2_Data(uint8_t *log_buf , size_t buf_len)
+{
+    if (buf_len < 3) return false;
+    if(memcmp(log_buf , "\xAA\x44\x12" , 3) == 0)
+        return true;
+    return false;
+}
+/*
+@fn:判断当前的字符数据是否组帧完毕
+*/
+bool Is_Char_Data_Over(uint8_t *log_buf , size_t buf_len)
+{
+    char *star = memchr(log_buf , '\r' , buf_len);
+    char *stop = memchr(log_buf , '\n' , buf_len);
+    if(star != NULL && stop != NULL && (stop-star)==1 )
+    {
+        log_buf[buf_len] = '\0';
+        return true;
+    }
+    return false;
+}
+/*
+@fn:判断当前缓冲区内的二进制数据是否完成组帧
+*/
+bool Is_0X2_Data_Over(uint8_t *log_buf , size_t buf_len)
+{
+    int Data_length = Get_0X2_Data_Length(log_buf , buf_len);
+    if(Data_length <= buf_len && Data_length != 0)
+    {
+        return true;
+    }
+    return false;
+}
+/*
+    分三级判断，不够就等 帧格式为 H(数据帧头部数据长度) + 4 + (卫星数 * 24 --每一个卫星都会产生一个24字节长度的数据) + 4 = h + 4 + x*24 + 4
+*/
+size_t Get_0X2_Data_Length(uint8_t *log_buf , size_t buf_len)
+{
+    /*第一级为判断长度*/
+    if(buf_len < 3)
+        return 0;
+    uint8_t Head_count = log_buf[3];          //数据头偏移三个字节也就是第四个字节代表了报文头部长度，也是卫星数量数据开始的偏移量
+    if(buf_len < (size_t)Head_count + 4)      
+        return 0;
+    /*卫星数量在 Head偏移量处开始，共四个字节，小端模式存放，也就是低字节存放低数据*/
+    uint32_t satellite_count = (uint32_t)log_buf[Head_count] | ((uint32_t)log_buf[Head_count + 1] << 8) 
+    | ((uint32_t)log_buf[Head_count + 2] << 16)| ((uint32_t)log_buf[Head_count + 3] << 24);
+    //printf("satellite_count = %ld\r\n" , satellite_count);
+    if(satellite_count > 512)
+        return 0;
+    if(Head_count < 4 || Head_count > 64)
+        return 0;
+    size_t total_len = Head_count + 4 + satellite_count*24 + 4;
+    //printf("total len = %d\r\n" , total_len);
+    return total_len;
+}
+
+
 #endif
 #if UM980_LOG_CHECK_IS
 /*
@@ -558,6 +605,14 @@ void gnss_uart2_to_mcu_task(void *arg)
     }
 }
 #endif
+bool Is_02X_Data(uint8_t *data , uint16_t len)
+{
+    if(memcmp(data , "\xAA\x44\x12"  , 3) == 0)  //是二进制数据报头
+    {
+        return true;
+    }
+    return false;
+}
 
 /*
 UARY3 主要任务是接收gnss发送的数据，接着打印
@@ -602,9 +657,12 @@ void Get_Log_Type(uint8_t *data , size_t len)
         case MSG_OBSVMCMPA:
             CMPA_Info cmpa;
             OBSVMCMPA_MSG_Parse(data , &cmpa);
-            //printf("%s",data);
             break;
 
+        case MSG_RANGECMPB:
+            RANGECMPB_Info cmpb;
+            RANGECMPB_MSG_Parse(data , &cmpb);
+            break;
         default:
             printf("%s",data);
             break;
@@ -624,18 +682,45 @@ GNSS_MSG_TYPE Log_Type(uint8_t *data , size_t len)
     {
         return MSG_OBSVMCMPA;
     }
+    else if(Is_0X2_Data(data , len))
+    {
+        return MSG_RANGECMPB;
+    }
     else
     {
         return MSG_UNKNOW;
     }
 }
 /*
+
+该报文记录是小端字节序存储，要按这个规则实现
+*/
+void RANGECMPB_MSG_Parse(uint8_t *data , RANGECMPB_Info * CMPB)
+{
+    //首先移动指针到卫星数据开头
+    uint8_t Head_count = data[3];
+    uint32_t Satellite_count = ((uint32_t)data[Head_count]) | ((uint32_t)data[Head_count+1]<<8) | ((uint32_t)data[Head_count+2]<<16) | ((uint32_t)data[Head_count+3]<<24);
+    uint8_t *star = &data[Satellite_count];
+    Single_RANGECMPB_Data_Parse(star , CMPB);
+    /*
+    for(int i = 0;i < Satellite_count; i++)
+    {
+        Single_RANGECMPB_Data_Parse(star , CMPB);
+        star+=24;
+    }
+    */
+}
+void Single_RANGECMPB_Data_Parse(uint8_t *data , RANGECMPB_Info * CMPB)
+{
+    CMPB->doppler = Get_Bits_LSB(data , 60 , 95);
+}
+
+/*
 @fn:对OBSVMCMPA报文进行解析，这里先尝试解析第一条数据
 该报文第一部分为消息头，截至到;号
 */
 void OBSVMCMPA_MSG_Parse(uint8_t *data , CMPA_Info * CMPA)
 {
-
     //将指针定位到分号后第一个','的数据部分
     uint8_t *star = (memchr((const char*)data , ';' , strlen((const char*)data)))+1;      //定位到 ；号
     size_t log_count;
@@ -684,7 +769,7 @@ static void Single_Data_Parse(uint8_t *star , uint8_t *end , CMPA_Info *CMPA)
 }
 
 /*
-@fn:将十六进制字符数据转换为整数 如 1 -> 1 ; 9 -> 9; a -> 10; f -> 15...
+@fn:将ASCII码字符数据转换为整数 如 1 -> 1 ; 9 -> 9; a -> 10; f -> 15...
 */
 static int HEX_To_Byte(char c)
 {
