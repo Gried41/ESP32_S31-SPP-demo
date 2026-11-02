@@ -55,9 +55,14 @@ void im_uart_to_mcu_task(void *arg)
             {
                 uint16_t real_len = len > sizeof(data) ? sizeof(data) : len;
                 uart_read_bytes(UART1 , data , real_len , portMAX_DELAY);
-
-                
+                for(int i = 0 ; i < real_len ; i++)
+                {
+                    printf("%02x" , data[i]);
+                }
+                printf("\r\n");
+                len -= real_len;
                 //判断是否有\r\n 有则代表输出的包已满 可以换行分割
+                /*
                 char *star = memchr(data , '\r' , real_len);
                 char *next = memchr(data , '\n' , real_len);
                 if( star != NULL && next != NULL && (next - star == 1))//找到了报文结束,一次性打印报文
@@ -98,6 +103,7 @@ void im_uart_to_mcu_task(void *arg)
                     } 
                 }
                 len -= real_len;
+                */
             }
         }
     }
